@@ -11,6 +11,18 @@
       "allow_web_offline": false,
       "enabled": true,
       "description": "Schedule only the forwardmr Telegram bot worker"
+    },
+    {
+      "id": "indexguardianbot-worker",
+      "app": "indexguardianbot",
+      "process_type": "worker",
+      "start_quantity": 1,
+      "stop_quantity": 0,
+      "allow_stop_to_zero": false,
+      "allow_web_offline": false,
+      "enabled": false,
+      "description": "Disabled - do not manage this app"
     }
   ]
 }
+
