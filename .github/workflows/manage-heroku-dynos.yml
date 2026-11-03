@@ -1,0 +1,132 @@
+name: Manage Heroku Dynos
+
+on:
+  schedule:
+    - cron: "7 8 * * *"
+      timezone: "Asia/Kolkata"
+    - cron: "7 23 * * *"
+      timezone: "Asia/Kolkata"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Operation to perform"
+        required: true
+        type: choice
+        default: "status"
+        options:
+          - "start"
+          - "stop"
+          - "status"
+          - "dry-run-start"
+          - "dry-run-stop"
+      target_id:
+        description: "Target ID to control, or 'all' for all enabled targets"
+        required: true
+        type: string
+        default: "all"
+      confirm_all_targets:
+        description: "Confirm bulk mutation for 'all' targets (required for manual start/stop on 'all')"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: heroku-dyno-scheduler
+  cancel-in-progress: false
+
+jobs:
+  manage-dynos:
+    name: Execute Dyno Scheduler
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Resolve operation and verify branch safety
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+          INPUT_ACTION: ${{ inputs.action }}
+          INPUT_TARGET_ID: ${{ inputs.target_id }}
+          INPUT_CONFIRM_ALL: ${{ inputs.confirm_all_targets }}
+          CURRENT_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [ "${EVENT_NAME}" = "schedule" ]; then
+            echo "Processing scheduled trigger: '${SCHEDULE_CRON}'"
+            if [ "${SCHEDULE_CRON}" = "7 8 * * *" ]; then
+              ACTION="start"
+            elif [ "${SCHEDULE_CRON}" = "7 23 * * *" ]; then
+              ACTION="stop"
+            else
+              echo "ERROR: Unrecognized schedule cron: '${SCHEDULE_CRON}'" >&2
+              exit 1
+            fi
+            TARGET_ID="all"
+            CONFIRM_ALL="true"
+          elif [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "Processing manual dispatch trigger"
+            EXPECTED_REF="refs/heads/${DEFAULT_BRANCH:-main}"
+            if [ "${CURRENT_REF}" != "${EXPECTED_REF}" ]; then
+              echo "ERROR: Manual dispatch may only execute on the default branch (${DEFAULT_BRANCH:-main}). Current ref: ${CURRENT_REF}" >&2
+              exit 1
+            fi
+            ACTION="${INPUT_ACTION}"
+            TARGET_ID="${INPUT_TARGET_ID}"
+            CONFIRM_ALL="${INPUT_CONFIRM_ALL}"
+          else
+            echo "ERROR: Unsupported event name: '${EVENT_NAME}'" >&2
+            exit 1
+          fi
+
+          echo "Resolved action: ${ACTION}"
+          echo "Resolved target_id: ${TARGET_ID}"
+          echo "Resolved confirm_all: ${CONFIRM_ALL}"
+
+          echo "action=${ACTION}" >> "$GITHUB_OUTPUT"
+          echo "target_id=${TARGET_ID}" >> "$GITHUB_OUTPUT"
+          echo "confirm_all=${CONFIRM_ALL}" >> "$GITHUB_OUTPUT"
+
+      - name: Execute dry run (No API token injected)
+        if: steps.resolve.outputs.action == 'dry-run-start' || steps.resolve.outputs.action == 'dry-run-stop'
+        env:
+          ACTION: ${{ steps.resolve.outputs.action }}
+          TARGET_ID: ${{ steps.resolve.outputs.target_id }}
+          CONFIRM_ALL: ${{ steps.resolve.outputs.confirm_all }}
+        run: |
+          set -euo pipefail
+          ARGS=("--action" "${ACTION}" "--target-id" "${TARGET_ID}")
+          if [ "${CONFIRM_ALL}" = "true" ]; then
+            ARGS+=("--confirm-all-targets")
+          fi
+          python -m src.scheduler "${ARGS[@]}"
+
+      - name: Execute live API operation
+        if: steps.resolve.outputs.action == 'start' || steps.resolve.outputs.action == 'stop' || steps.resolve.outputs.action == 'status'
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+          ACTION: ${{ steps.resolve.outputs.action }}
+          TARGET_ID: ${{ steps.resolve.outputs.target_id }}
+          CONFIRM_ALL: ${{ steps.resolve.outputs.confirm_all }}
+        run: |
+          set -euo pipefail
+          ARGS=("--action" "${ACTION}" "--target-id" "${TARGET_ID}")
+          if [ "${CONFIRM_ALL}" = "true" ]; then
+            ARGS+=("--confirm-all-targets")
+          fi
+          python -m src.scheduler "${ARGS[@]}"

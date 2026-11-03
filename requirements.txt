@@ -1,0 +1,2 @@
+# Heroku Dyno Scheduler relies entirely on the Python Standard Library.
+# No external runtime dependencies are required.
