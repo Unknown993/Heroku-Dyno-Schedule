@@ -2,9 +2,9 @@ name: Manage Heroku Dynos
 
 on:
   schedule:
-    - cron: "0 1 * * *"
+    - cron: "30 23 * * *"
       timezone: "Asia/Kolkata"
-    - cron: "0 8 * * *"
+    - cron: "10 10 * * *"
       timezone: "Asia/Kolkata"
   workflow_dispatch:
     inputs:
@@ -69,9 +69,9 @@ jobs:
 
           if [ "${EVENT_NAME}" = "schedule" ]; then
             echo "Processing scheduled trigger: '${SCHEDULE_CRON}'"
-            if [ "${SCHEDULE_CRON}" = "0 8 * * *" ]; then
+            if [ "${SCHEDULE_CRON}" = "10 10 * * *" ]; then
               ACTION="start"
-            elif [ "${SCHEDULE_CRON}" = "0 1 * * *" ]; then
+            elif [ "${SCHEDULE_CRON}" = "30 23 * * *" ]; then
               ACTION="stop"
             else
               echo "ERROR: Unrecognized schedule cron: '${SCHEDULE_CRON}'" >&2
